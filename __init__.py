@@ -105,56 +105,92 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Find and process entities from configured sensor groups."""
         _LOGGER.debug("TRMNL: Starting entity processing for groups: %s", sensor_groups)
         
-        # Get all entities from configured groups
-        entities = get_entities_by_groups(sensor_groups)
+        # Create grouped payload structure
+        grouped_payload = {}
+        total_entities = 0
+        
+        for group in sensor_groups:
+            _LOGGER.debug("TRMNL: Processing group: %s", group)
+            template_str = f"{{{{ label_entities('{group}') }}}}"
+            template = Template(template_str, hass)
+            
+            try:
+                group_entities = template.async_render()
+                if not group_entities:
+                    _LOGGER.debug("TRMNL: No entities found in group '%s'", group)
+                    continue
+                
+                # Process entities in this group
+                group_payload = []
+                for entity_id in group_entities:
+                    state = hass.states.get(entity_id)
+                    if state and state.state not in ['unknown', 'unavailable']:
+                        _LOGGER.debug("TRMNL: Processing entity: %s in group %s", entity_id, group)
+                        group_payload.append(create_minimal_entity_payload(state))
+                    else:
+                        _LOGGER.debug("TRMNL: Skipping entity %s (state: %s)", entity_id, state.state if state else "not found")
+                
+                # Add group to payload if it has entities
+                if group_payload:
+                    grouped_payload[group] = group_payload
+                    total_entities += len(group_payload)
+                    _LOGGER.debug("TRMNL: Added %d entities to group '%s'", len(group_payload), group)
+                
+            except Exception as err:
+                _LOGGER.error("TRMNL: Error processing group '%s': %s", group, err)
 
         # If no entities found, log error and return
-        if not entities:
+        if not grouped_payload:
             _LOGGER.error("TRMNL: No entities found for groups: %s", sensor_groups)
             return
 
         # Log the number of entities found
-        _LOGGER.info("TRMNL: Found %d entities across %d groups", len(entities), len(sensor_groups))
-
-        # Create minimal payload for each entity
-        entities_payload = []
-        for entity_id in entities:
-            state = hass.states.get(entity_id)
-            if state and state.state not in ['unknown', 'unavailable']:
-                _LOGGER.debug("TRMNL: Processing entity: %s", entity_id)
-                entities_payload.append(create_minimal_entity_payload(state))
-            else:
-                _LOGGER.debug("TRMNL: Skipping entity %s (state: %s)", entity_id, state.state if state else "not found")
+        _LOGGER.info("TRMNL: Found %d entities across %d groups", total_entities, len(grouped_payload))
 
         # Send to TRMNL webhook if we have entities
-        if entities_payload:
-            # Create base payload
+        if grouped_payload:
+            # Create base payload with grouped structure
             payload = {
                 "merge_variables": {
-                    "entities": entities_payload,
-                    "groups": sensor_groups,
+                    **grouped_payload,  # Spread the grouped data directly
                     "timestamp": datetime.now().isoformat(),
-                    "count": len(entities_payload)
+                    "total_count": total_entities,
+                    "groups": list(grouped_payload.keys())
                 }
             }
             
-            # Check payload size
+            # Check payload size and handle truncation if needed
             payload_size = calculate_payload_size(payload)
             _LOGGER.debug("TRMNL: Payload size: %d bytes", payload_size)
             
             if payload_size > MAX_PAYLOAD_SIZE:
-                _LOGGER.warning("TRMNL: Payload size (%d bytes) exceeds 2KB limit, truncating entities", payload_size)
+                _LOGGER.warning("TRMNL: Payload size (%d bytes) exceeds 2KB limit, truncating groups", payload_size)
                 
-                # Remove entities until we're under the limit
-                while payload_size > MAX_PAYLOAD_SIZE and entities_payload:
-                    entities_payload.pop()
-                    payload["merge_variables"]["entities"] = entities_payload
-                    payload["merge_variables"]["count"] = len(entities_payload)
-                    payload_size = calculate_payload_size(payload)
+                # Remove entities from groups until we're under the limit
+                while payload_size > MAX_PAYLOAD_SIZE and any(grouped_payload.values()):
+                    # Find the group with the most entities and remove one
+                    largest_group = max(grouped_payload.keys(), key=lambda g: len(grouped_payload[g]))
+                    if grouped_payload[largest_group]:
+                        grouped_payload[largest_group].pop()
+                        # Remove empty groups
+                        if not grouped_payload[largest_group]:
+                            del grouped_payload[largest_group]
+                        
+                        # Update payload
+                        payload["merge_variables"] = {
+                            **grouped_payload,
+                            "timestamp": datetime.now().isoformat(),
+                            "total_count": sum(len(entities) for entities in grouped_payload.values()),
+                            "groups": list(grouped_payload.keys())
+                        }
+                        payload_size = calculate_payload_size(payload)
+                    else:
+                        break
                 
-                _LOGGER.info("TRMNL: Reduced payload to %d entities (%d bytes)", len(entities_payload), payload_size)
+                _LOGGER.info("TRMNL: Reduced payload to %d entities (%d bytes)", 
+                           sum(len(entities) for entities in grouped_payload.values()), payload_size)
             
-            _LOGGER.debug("TRMNL: Preparing to send payload with %d entities", len(entities_payload))
+            _LOGGER.debug("TRMNL: Preparing to send grouped payload with %d groups", len(grouped_payload))
             
             try:
                 async with aiohttp.ClientSession() as session:
@@ -162,7 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     async with session.post(url, json=payload, timeout=30) as response:
                         if response.status == 200:
                             _LOGGER.info("TRMNL: Successfully sent %d entities from %d groups", 
-                                       len(entities_payload), len(sensor_groups))
+                                       sum(len(entities) for entities in grouped_payload.values()), len(grouped_payload))
                             response_text = await response.text()
                             _LOGGER.debug("TRMNL: Webhook response: %s", response_text)
                         else:

@@ -65,8 +65,13 @@ This is a Home Assistant custom integration that pushes entity data from labeled
 3. **Data Format**:
    ```json
    {
-     "name": "friendly_name_or_entity_id",
-     "value": "state_with_unit"
+     "temperatures": [
+       {"name": "toilet", "value": "25°C"},
+       {"name": "living", "value": "23.5°C"}
+     ],
+     "garbage": [
+       {"name": "garbage day", "value": "2 days"}
+     ]
    }
    ```
 
@@ -109,10 +114,11 @@ This is a Home Assistant custom integration that pushes entity data from labeled
 ## Recent Changes
 
 - June 24, 2025: Updated integration to support custom sensor groups
-  - Users can now define groups like "garbage", "temperature", etc.
+  - Users can now define groups like "garbage", "temperatures", etc.
+  - Grouped JSON payload structure with sensors organized by category
   - Minimal payload format (name + value only) for 2KB compliance
   - Multi-group selection in config flow with label-based filtering
-  - Automatic payload size management with truncation if needed
+  - Automatic payload size management with group-aware truncation
   - Backward compatibility maintained with default "TRMNL" label
 
 ## Changelog
