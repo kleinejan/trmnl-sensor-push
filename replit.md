@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Home Assistant custom integration that pushes entity data from labeled sensors to TRMNL (Terminal) devices via webhook. The integration allows users to select specific entity groups by labels and automatically sends their state information to a configured TRMNL webhook endpoint at regular intervals.
+This is a Home Assistant custom integration that pushes entity data from labeled sensors to TRMNL (Terminal) devices via webhook. Users can organize sensors into custom groups (like "garbage", "temperature", "humidity") using Home Assistant labels, then select which groups to push to TRMNL. The integration sends minimal payloads with just sensor names and values to stay within TRMNL's 2KB limit.
 
 ## System Architecture
 
@@ -106,9 +106,19 @@ This is a Home Assistant custom integration that pushes entity data from labeled
 - **Network**: Periodic outbound HTTPS requests only
 - **Performance**: Optimized payload size and 30-minute intervals to minimize load
 
+## Recent Changes
+
+- June 24, 2025: Updated integration to support custom sensor groups
+  - Users can now define groups like "garbage", "temperature", etc.
+  - Minimal payload format (name + value only) for 2KB compliance
+  - Multi-group selection in config flow with label-based filtering
+  - Automatic payload size management with truncation if needed
+  - Backward compatibility maintained with default "TRMNL" label
+
 ## Changelog
 
-- June 24, 2025. Initial setup
+- June 24, 2025: Enhanced for custom sensor groups
+- June 24, 2025: Initial setup
 
 ## User Preferences
 
