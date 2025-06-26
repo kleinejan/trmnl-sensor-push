@@ -1,0 +1,17 @@
+name: Validate Home Assistant Custom Integration
+
+on:
+  push:
+    paths:
+      - '**.py'
+      - '**.json'
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate integration with hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run hassfest
+        uses: home-assistant/actions/hassfest@master
